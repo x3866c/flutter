@@ -100,4 +100,16 @@ DartIsolateGroupData::GetKernelBuffers() const {
   return kernel_buffers_;
 }
 
+void DartIsolateGroupData::SetRootFontCollection(
+    std::shared_ptr<txt::FontCollection> collection) {
+  std::scoped_lock lock(root_font_collection_mutex_);
+  root_font_collection_ = std::move(collection);
+}
+
+std::shared_ptr<txt::FontCollection>
+DartIsolateGroupData::GetRootFontCollection() const {
+  std::scoped_lock lock(root_font_collection_mutex_);
+  return root_font_collection_;
+}
+
 }  // namespace flutter

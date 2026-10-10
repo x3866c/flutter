@@ -4,6 +4,8 @@
 
 #include "flutter/runtime/dart_isolate.h"
 
+#include "flutter/lib/ui/text/font_collection.h"
+
 #include <cstdlib>
 #include <utility>
 
@@ -287,6 +289,15 @@ std::weak_ptr<DartIsolate> DartIsolate::CreateRootIsolate(
 
   (*root_isolate_data)
       ->SetPlatformConfiguration(std::move(platform_configuration));
+
+  PlatformConfiguration* root_config =
+      (*root_isolate_data)->platform_configuration();
+  if (root_config && root_config->client()) {
+    (*root_isolate_data)
+        ->GetIsolateGroupData()
+        .SetRootFontCollection(
+            root_config->client()->GetFontCollection().GetFontCollection());
+  }
 
   return (*root_isolate_data)->GetWeakIsolatePtr();
 }
@@ -1172,6 +1183,10 @@ bool DartIsolate::DartIsolateInitializeCallback(void** child_callback_data,
   context.advisory_script_uri = (*isolate_group_data)->GetAdvisoryScriptURI();
   context.advisory_script_entrypoint =
       (*isolate_group_data)->GetAdvisoryScriptEntrypoint();
+  if (auto root_fonts = (*isolate_group_data)->GetRootFontCollection()) {
+    context.background_font_collection =
+        root_fonts->CloneSharingFontManagers();
+  }
   auto embedder_isolate = std::make_unique<std::shared_ptr<DartIsolate>>(
       std::shared_ptr<DartIsolate>(
           new DartIsolate((*isolate_group_data)->GetSettings(),  // settings

@@ -154,7 +154,11 @@ void ParagraphBuilder::Create(Dart_Handle wrapper,
                               double height,
                               const std::u16string& ellipsis,
                               const std::string& locale) {
-  UIDartState::ThrowIfUIOperationsProhibited();
+  // Text layout is allowed in background isolates that share the root
+  // isolate's fonts. Drawing still requires the root isolate.
+  if (!UIDartState::Current()->GetBackgroundFontCollection()) {
+    UIDartState::ThrowIfUIOperationsProhibited();
+  }
   auto res = fml::MakeRefCounted<ParagraphBuilder>(
       encoded_handle, strutData, fontFamily, strutFontFamilies, fontSize,
       height, ellipsis, locale);
@@ -287,14 +291,21 @@ ParagraphBuilder::ParagraphBuilder(
     style.locale = locale;
   }
 
-  FontCollection& font_collection = UIDartState::Current()
-                                        ->platform_configuration()
-                                        ->client()
-                                        ->GetFontCollection();
+  UIDartState* state = UIDartState::Current();
+  std::shared_ptr<txt::FontCollection> txt_collection;
+  if (state->IsRootIsolate()) {
+    txt_collection = state->platform_configuration()
+                         ->client()
+                         ->GetFontCollection()
+                         .GetFontCollection();
+  } else {
+    txt_collection = state->GetBackgroundFontCollection();
+    txt_collection->ClearCachesIfFontsChanged();
+  }
 
-  auto impeller_enabled = UIDartState::Current()->IsImpellerEnabled();
+  auto impeller_enabled = state->IsImpellerEnabled();
   m_paragraph_builder_ = txt::ParagraphBuilder::CreateSkiaBuilder(
-      style, font_collection.GetFontCollection(), impeller_enabled);
+      style, txt_collection, impeller_enabled);
 }
 
 ParagraphBuilder::~ParagraphBuilder() = default;

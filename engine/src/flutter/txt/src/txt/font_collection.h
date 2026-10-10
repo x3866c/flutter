@@ -5,6 +5,7 @@
 #ifndef FLUTTER_TXT_SRC_TXT_FONT_COLLECTION_H_
 #define FLUTTER_TXT_SRC_TXT_FONT_COLLECTION_H_
 
+#include <atomic>
 #include <memory>
 #include <set>
 #include <string>
@@ -44,12 +45,27 @@ class FontCollection : public std::enable_shared_from_this<FontCollection> {
   // Construct a Skia text layout FontCollection based on this collection.
   sk_sp<skia::textlayout::FontCollection> CreateSktFontCollection();
 
+  // Creates a collection that shares this collection's font managers (and so
+  // the loaded typefaces) but owns separate Skia text layout caches. The
+  // result may be used on another thread, e.g. by a background isolate.
+  std::shared_ptr<FontCollection> CloneSharingFontManagers() const;
+
+  // Called after fonts are registered at runtime. Collections created by
+  // |CloneSharingFontManagers| clear their family caches before next use.
+  static void NotifyFontsChanged();
+
+  // Clears the family caches if fonts were registered at runtime since the
+  // last call.
+  void ClearCachesIfFontsChanged();
+
  private:
   sk_sp<SkFontMgr> default_font_manager_;
   sk_sp<SkFontMgr> asset_font_manager_;
   sk_sp<SkFontMgr> dynamic_font_manager_;
   sk_sp<SkFontMgr> test_font_manager_;
   bool enable_font_fallback_;
+  uint64_t seen_font_generation_ = 0;
+  static std::atomic<uint64_t> font_generation_;
 
   // An equivalent font collection usable by the Skia text shaper library.
   sk_sp<skia::textlayout::FontCollection> skt_collection_;

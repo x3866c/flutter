@@ -170,6 +170,7 @@ void FontCollection::LoadFontFromList(Dart_Handle font_data_handle,
     font_provider.RegisterTypeface(typeface, family_name);
   }
   font_collection.collection_->ClearFontFamilyCache();
+  txt::FontCollection::NotifyFontsChanged();
 
   font_data.Release();
   tonic::DartInvoke(callback, {tonic::ToDart(0)});

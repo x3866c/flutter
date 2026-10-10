@@ -18,6 +18,7 @@
 #include "flutter/lib/ui/io_manager.h"
 #include "flutter/lib/ui/isolate_name_server/isolate_name_server.h"
 #include "flutter/lib/ui/painting/image_decoder.h"
+#include "txt/font_collection.h"
 #include "flutter/lib/ui/snapshot_delegate.h"
 #include "flutter/shell/common/platform_message_handler.h"
 #include "impeller/core/runtime_types.h"
@@ -112,6 +113,10 @@ class UIDartState : public tonic::DartState {
 
     /// Whether flutter_gpu is enabled or not.
     bool enable_flutter_gpu = false;
+
+    /// Fonts for text layout in an isolate spawned from a root isolate. Shares
+    /// the root isolate's font managers but owns separate layout caches.
+    std::shared_ptr<txt::FontCollection> background_font_collection;
   };
 
   Dart_Port main_port() const { return main_port_; }
@@ -179,6 +184,10 @@ class UIDartState : public tonic::DartState {
 
   /// Whether Impeller is enabled for this application.
   bool IsImpellerEnabled() const;
+
+  /// Fonts usable for text layout in a non-root isolate, or null.
+  const std::shared_ptr<txt::FontCollection>& GetBackgroundFontCollection()
+      const;
 
   /// Whether Flutter GPU is enabled for this application.
   bool IsFlutterGPUEnabled() const;

@@ -16,17 +16,20 @@ TypefaceFontAssetProvider::~TypefaceFontAssetProvider() = default;
 
 // |FontAssetProvider|
 size_t TypefaceFontAssetProvider::GetFamilyCount() const {
+  std::lock_guard<std::mutex> lock(mutex_);
   return family_names_.size();
 }
 
 // |FontAssetProvider|
 std::string TypefaceFontAssetProvider::GetFamilyName(int index) const {
+  std::lock_guard<std::mutex> lock(mutex_);
   return family_names_[index];
 }
 
 // |FontAssetProvider|
 sk_sp<SkFontStyleSet> TypefaceFontAssetProvider::MatchFamily(
     const std::string& family_name) {
+  std::lock_guard<std::mutex> lock(mutex_);
   auto found = registered_families_.find(CanonicalFamilyName(family_name));
   if (found == registered_families_.end()) {
     return nullptr;
@@ -54,6 +57,7 @@ void TypefaceFontAssetProvider::RegisterTypeface(
   }
 
   std::string canonical_name = CanonicalFamilyName(family_name_alias);
+  std::lock_guard<std::mutex> lock(mutex_);
   auto family_it = registered_families_.find(canonical_name);
   if (family_it == registered_families_.end()) {
     family_names_.push_back(family_name_alias);
@@ -72,16 +76,19 @@ void TypefaceFontStyleSet::registerTypeface(sk_sp<SkTypeface> typeface) {
   if (typeface == nullptr) {
     return;
   }
+  std::lock_guard<std::mutex> lock(mutex_);
   typefaces_.emplace_back(std::move(typeface));
 }
 
 int TypefaceFontStyleSet::count() {
+  std::lock_guard<std::mutex> lock(mutex_);
   return typefaces_.size();
 }
 
 void TypefaceFontStyleSet::getStyle(int index,
                                     SkFontStyle* style,
                                     SkString* name) {
+  std::lock_guard<std::mutex> lock(mutex_);
   FML_DCHECK(static_cast<size_t>(index) < typefaces_.size());
   if (style) {
     *style = typefaces_[index]->fontStyle();
@@ -92,6 +99,7 @@ void TypefaceFontStyleSet::getStyle(int index,
 }
 
 sk_sp<SkTypeface> TypefaceFontStyleSet::createTypeface(int i) {
+  std::lock_guard<std::mutex> lock(mutex_);
   size_t index = i;
   if (index >= typefaces_.size()) {
     return nullptr;

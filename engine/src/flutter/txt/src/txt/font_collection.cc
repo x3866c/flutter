@@ -19,6 +19,8 @@
 
 namespace txt {
 
+std::atomic<uint64_t> FontCollection::font_generation_{0};
+
 FontCollection::FontCollection() : enable_font_fallback_(true) {}
 
 FontCollection::~FontCollection() {
@@ -108,6 +110,30 @@ FontCollection::CreateSktFontCollection() {
   }
 
   return skt_collection_;
+}
+
+std::shared_ptr<FontCollection> FontCollection::CloneSharingFontManagers()
+    const {
+  auto clone = std::make_shared<FontCollection>();
+  clone->default_font_manager_ = default_font_manager_;
+  clone->asset_font_manager_ = asset_font_manager_;
+  clone->dynamic_font_manager_ = dynamic_font_manager_;
+  clone->test_font_manager_ = test_font_manager_;
+  clone->enable_font_fallback_ = enable_font_fallback_;
+  clone->seen_font_generation_ = font_generation_.load();
+  return clone;
+}
+
+void FontCollection::NotifyFontsChanged() {
+  font_generation_.fetch_add(1);
+}
+
+void FontCollection::ClearCachesIfFontsChanged() {
+  uint64_t generation = font_generation_.load();
+  if (generation != seen_font_generation_) {
+    seen_font_generation_ = generation;
+    ClearFontFamilyCache();
+  }
 }
 
 }  // namespace txt

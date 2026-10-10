@@ -3817,3 +3817,155 @@ FutureOr<void> _sendFontChangeMessage() async {
 
 @Native<Void Function(Handle, Handle, Handle)>(symbol: 'FontCollection::LoadFontFromList')
 external void _loadFontFromList(Uint8List list, _Callback<void> callback, String fontFamily);
+
+/// The style of a run of characters in a [PositionedText].
+final class PositionedTextStyle {
+  /// Creates a style for [PositionedText].
+  ///
+  /// `fontFamilies` are tried in order before the platform fallback fonts.
+  const PositionedTextStyle({
+    required this.fontFamilies,
+    required this.fontSize,
+    this.fontWeight = FontWeight.normal,
+    this.fontStyle = FontStyle.normal,
+    this.color = const Color(0xFF000000),
+    this.fontVariations = const <FontVariation>[],
+  });
+
+  /// Font families to try in order before the platform fallback fonts.
+  final List<String> fontFamilies;
+
+  /// Font size in logical pixels.
+  final double fontSize;
+
+  /// Font weight. Also applied to the `wght` axis of variable fonts unless
+  /// [fontVariations] sets that axis.
+  final FontWeight fontWeight;
+
+  /// Upright or italic.
+  final FontStyle fontStyle;
+
+  /// Fill color of the glyphs.
+  final Color color;
+
+  /// Variable font axis values.
+  final List<FontVariation> fontVariations;
+}
+
+/// Characters drawn at caller-provided baseline positions in one call.
+///
+/// Each code point of [text] is drawn as one glyph at its own baseline origin,
+/// using the typeface a [Paragraph] would pick for it (the style's font
+/// families, then platform fallback). No shaping is done, so scripts that need
+/// contextual shaping (Arabic, Indic scripts, emoji sequences) should keep
+/// using [Paragraph].
+///
+/// Fonts and glyphs are resolved once when the object is created; [paint]
+/// only records one text operation per style and typeface. Must be created and
+/// painted in the root isolate.
+abstract class PositionedText {
+  /// Resolves glyphs for `text`.
+  ///
+  /// `positions` holds an x, y baseline origin for every code point of
+  /// `text` (surrogate pairs count once), and `styleIndices` the index into
+  /// `styles` for every code point.
+  factory PositionedText({
+    required String text,
+    required Float32List positions,
+    required Int32List styleIndices,
+    required List<PositionedTextStyle> styles,
+    String locale,
+  }) = _NativePositionedText;
+
+  /// Number of glyphs that will be drawn (whitespace is skipped).
+  int get glyphCount;
+
+  /// Number of text operations [paint] records.
+  int get runCount;
+
+  /// Records the glyphs into `canvas`, offset by `offset`.
+  void paint(Canvas canvas, Offset offset);
+
+  /// Releases the native resources.
+  void dispose();
+}
+
+base class _NativePositionedText extends NativeFieldWrapperClass1 implements PositionedText {
+  _NativePositionedText({
+    required String text,
+    required Float32List positions,
+    required Int32List styleIndices,
+    required List<PositionedTextStyle> styles,
+    String locale = '',
+  }) {
+    final List<int> ints = <int>[];
+    final List<double> floats = <double>[];
+    final List<String> families = <String>[];
+    for (final PositionedTextStyle style in styles) {
+      ints
+        ..add(style.fontWeight.value)
+        ..add(style.fontStyle == FontStyle.italic ? 1 : 0)
+        ..add(style.color.toARGB32().toSigned(32))
+        ..add(style.fontFamilies.length)
+        ..add(style.fontVariations.length);
+      floats.add(style.fontSize);
+      families.addAll(style.fontFamilies);
+      for (final FontVariation variation in style.fontVariations) {
+        final List<int> tag = variation.axis.codeUnits;
+        ints.add(((tag[0] << 24) | (tag[1] << 16) | (tag[2] << 8) | tag[3]).toSigned(32));
+        floats.add(variation.value);
+      }
+    }
+    _constructor(
+      text,
+      positions,
+      styleIndices,
+      Int32List.fromList(ints),
+      Float32List.fromList(floats),
+      families,
+      locale,
+    );
+  }
+
+  @Native<Void Function(Handle, Handle, Handle, Handle, Handle, Handle, Handle, Handle)>(
+    symbol: 'PositionedText::Create',
+  )
+  external void _constructor(
+    String text,
+    Float32List positions,
+    Int32List styleIndices,
+    Int32List styleInts,
+    Float32List styleFloats,
+    List<Object?> families,
+    String locale,
+  );
+
+  @override
+  @Native<Int32 Function(Pointer<Void>)>(symbol: 'PositionedText::glyphCount', isLeaf: true)
+  external int get glyphCount;
+
+  @override
+  @Native<Int32 Function(Pointer<Void>)>(symbol: 'PositionedText::runCount', isLeaf: true)
+  external int get runCount;
+
+  @override
+  void paint(Canvas canvas, Offset offset) {
+    assert(!_disposed);
+    _paint(canvas as _NativeCanvas, offset.dx, offset.dy);
+  }
+
+  @Native<Void Function(Pointer<Void>, Pointer<Void>, Double, Double)>(symbol: 'PositionedText::paint')
+  external void _paint(_NativeCanvas canvas, double x, double y);
+
+  bool _disposed = false;
+
+  @override
+  void dispose() {
+    assert(!_disposed);
+    _disposed = true;
+    _dispose();
+  }
+
+  @Native<Void Function(Pointer<Void>)>(symbol: 'PositionedText::dispose')
+  external void _dispose();
+}

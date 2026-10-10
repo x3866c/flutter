@@ -15,6 +15,10 @@
 #include "flutter/fml/memory/ref_ptr.h"
 #include "flutter/lib/ui/window/platform_configuration.h"
 
+namespace txt {
+class FontCollection;
+}  // namespace txt
+
 namespace flutter {
 
 class DartIsolate;
@@ -61,6 +65,12 @@ class DartIsolateGroupData : public PlatformMessageHandlerStorage {
 
   std::shared_ptr<NativeAssetsManager> GetNativeAssetsManager() const;
 
+  /// The font collection of the group's root isolate. Isolates spawned into
+  /// the group use it to lay out text off the UI thread.
+  void SetRootFontCollection(std::shared_ptr<txt::FontCollection> collection);
+
+  std::shared_ptr<txt::FontCollection> GetRootFontCollection() const;
+
   /// Adds a kernel buffer mapping to the kernels loaded for this isolate group.
   void AddKernelBuffer(const std::shared_ptr<const fml::Mapping>& buffer);
 
@@ -91,6 +101,8 @@ class DartIsolateGroupData : public PlatformMessageHandlerStorage {
   std::map<int64_t, std::weak_ptr<PlatformMessageHandler>>
       platform_message_handlers_;
   mutable std::mutex platform_message_handlers_mutex_;
+  std::shared_ptr<txt::FontCollection> root_font_collection_;
+  mutable std::mutex root_font_collection_mutex_;
 
   FML_DISALLOW_COPY_AND_ASSIGN(DartIsolateGroupData);
 };

@@ -80,6 +80,11 @@ bool UIDartState::IsDeterministicRenderingEnabled() const {
   return context_.deterministic_rendering_enabled;
 }
 
+const std::shared_ptr<txt::FontCollection>&
+UIDartState::GetBackgroundFontCollection() const {
+  return context_.background_font_collection;
+}
+
 bool UIDartState::IsImpellerEnabled() const {
   return context_.enable_impeller;
 }
