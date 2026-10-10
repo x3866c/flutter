@@ -26,15 +26,9 @@ jobs:
           echo "CLEAN_SEC=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
           df -h
 
-      - name: 选空间最大的盘
-        run: |
-          root_free=$(df --output=avail -k / | tail -1)
-          mnt_free=$(df --output=avail -k /mnt 2>/dev/null | tail -1 || echo 0)
-          if [ "${mnt_free:-0}" -gt "$root_free" ]; then
-            sudo mkdir -p /mnt/work && sudo chown "$USER" /mnt/work && echo "WORK=/mnt/work" >> "$GITHUB_ENV"
-          else
-            mkdir -p "$HOME/work" && echo "WORK=$HOME/work" >> "$GITHUB_ENV"
-          fi
+      - name: 工作目录
+        # 不能用 $HOME/work：那是 GitHub 放仓库代码的目录。根分区清理后约 120GB 空闲，够用。
+        run: mkdir -p "$HOME/engine-build" && echo "WORK=$HOME/engine-build" >> "$GITHUB_ENV"
 
       - name: 后台记录磁盘峰值
         run: |
