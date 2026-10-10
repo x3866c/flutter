@@ -36,6 +36,15 @@ class FontCollection {
                                Dart_Handle callback,
                                const std::string& family_name);
 
+  // Registers the font file at |path| by mapping it rather than copying it
+  // into memory. Returns false if the file is not a usable font.
+  static bool LoadFontFromFile(const std::string& path,
+                               const std::string& family_name);
+
+  // Removes a family registered at runtime. Its memory is released once the
+  // paragraphs, pictures and glyph caches that use it are gone.
+  static bool UnloadFontFamily(const std::string& family_name);
+
  private:
   std::shared_ptr<txt::FontCollection> collection_;
   sk_sp<txt::DynamicFontManager> dynamic_font_manager_;

@@ -4,6 +4,8 @@
 
 #include "txt/typeface_font_asset_provider.h"
 
+#include <algorithm>
+
 #include "flutter/fml/logging.h"
 #include "third_party/skia/include/core/SkString.h"
 #include "third_party/skia/include/core/SkTypeface.h"
@@ -66,6 +68,22 @@ void TypefaceFontAssetProvider::RegisterTypeface(
     family_it = registered_families_.emplace(value).first;
   }
   family_it->second->registerTypeface(std::move(typeface));
+}
+
+bool TypefaceFontAssetProvider::UnregisterFamily(
+    const std::string& family_name) {
+  std::string canonical_name = CanonicalFamilyName(family_name);
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (registered_families_.erase(canonical_name) == 0) {
+    return false;
+  }
+  family_names_.erase(
+      std::remove_if(family_names_.begin(), family_names_.end(),
+                     [&canonical_name](const std::string& name) {
+                       return CanonicalFamilyName(name) == canonical_name;
+                     }),
+      family_names_.end());
+  return true;
 }
 
 TypefaceFontStyleSet::TypefaceFontStyleSet() = default;

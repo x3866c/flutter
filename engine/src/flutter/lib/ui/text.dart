@@ -3818,6 +3818,46 @@ FutureOr<void> _sendFontChangeMessage() async {
 @Native<Void Function(Handle, Handle, Handle)>(symbol: 'FontCollection::LoadFontFromList')
 external void _loadFontFromList(Uint8List list, _Callback<void> callback, String fontFamily);
 
+/// Loads the font file at `path` and makes it available for rendering text.
+///
+/// Unlike [loadFontFromList], the file is mapped rather than read into
+/// memory: glyph data is paged in on demand and the pages can be reclaimed by
+/// the system. The file must not be modified or truncated while the font is
+/// registered (deleting it is fine).
+///
+/// * `fontFamily`: The family name used to identify the font in text styles.
+///  If this is not provided, then the family name will be extracted from the font file.
+///
+/// Returns false if the file could not be loaded as a font.
+bool loadFontFromFile(String path, {String? fontFamily}) {
+  final bool loaded = _loadFontFromFile(path, fontFamily ?? '');
+  if (loaded) {
+    _sendFontChangeMessage();
+  }
+  return loaded;
+}
+
+@Native<Bool Function(Handle, Handle)>(symbol: 'FontCollection::LoadFontFromFile')
+external bool _loadFontFromFile(String path, String fontFamily);
+
+/// Removes a font family registered with [loadFontFromList] or
+/// [loadFontFromFile].
+///
+/// Text laid out afterwards no longer uses the family. The font's memory is
+/// released once paragraphs, pictures and glyph caches that use it are gone.
+///
+/// Returns false if no such family was registered at runtime.
+bool unloadFontFamily(String fontFamily) {
+  final bool unloaded = _unloadFontFamily(fontFamily);
+  if (unloaded) {
+    _sendFontChangeMessage();
+  }
+  return unloaded;
+}
+
+@Native<Bool Function(Handle)>(symbol: 'FontCollection::UnloadFontFamily')
+external bool _unloadFontFamily(String fontFamily);
+
 /// The style of a run of characters in a [PositionedText].
 final class PositionedTextStyle {
   /// Creates a style for [PositionedText].

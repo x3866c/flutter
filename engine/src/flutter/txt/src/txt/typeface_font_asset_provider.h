@@ -54,6 +54,10 @@ class TypefaceFontAssetProvider : public FontAssetProvider {
   void RegisterTypeface(sk_sp<SkTypeface> typeface,
                         const std::string& family_name_alias);
 
+  // Removes a family and its typefaces. Returns false if it was not
+  // registered.
+  bool UnregisterFamily(const std::string& family_name);
+
   // |FontAssetProvider|
   size_t GetFamilyCount() const override;
 

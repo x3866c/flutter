@@ -42,6 +42,12 @@ void LazyGlyphAtlas::AddTextFrame(
       frame, transform * Matrix::MakeTranslation(position), properties);
 }
 
+std::atomic<uint64_t> LazyGlyphAtlas::eviction_generation_{0};
+
+void LazyGlyphAtlas::EvictAllGlyphs() {
+  eviction_generation_.fetch_add(1);
+}
+
 void LazyGlyphAtlas::ResetTextFrames() {
   alpha_data_.reset();
   color_data_.reset();
@@ -51,6 +57,16 @@ const std::shared_ptr<GlyphAtlas>& LazyGlyphAtlas::CreateOrGetGlyphAtlas(
     Context& context,
     HostBuffer& data_host_buffer,
     GlyphAtlas::Type type) {
+  uint64_t eviction_generation = eviction_generation_.load();
+  if (eviction_generation != seen_eviction_generation_ &&
+      typographer_context_) {
+    seen_eviction_generation_ = eviction_generation;
+    // Fresh contexts start from empty atlases, releasing the old glyphs.
+    alpha_data_.context = typographer_context_->CreateGlyphAtlasContext(
+        GlyphAtlas::Type::kAlphaBitmap);
+    color_data_.context = typographer_context_->CreateGlyphAtlasContext(
+        GlyphAtlas::Type::kColorBitmap);
+  }
   AtlasData& data = GetData(type);
   if (data.atlas) {
     return data.atlas;

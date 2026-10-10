@@ -24,6 +24,10 @@
 #include "txt/platform.h"
 #include "txt/test_font_manager.h"
 
+#if IMPELLER_SUPPORTS_RENDERING
+#include "impeller/typographer/lazy_glyph_atlas.h"  // nogncheck
+#endif
+
 #if FML_OS_MACOSX || FML_OS_IOS
 #include "txt/platform_mac.h"
 #endif
@@ -174,6 +178,51 @@ void FontCollection::LoadFontFromList(Dart_Handle font_data_handle,
 
   font_data.Release();
   tonic::DartInvoke(callback, {tonic::ToDart(0)});
+}
+
+bool FontCollection::LoadFontFromFile(const std::string& path,
+                                      const std::string& family_name) {
+  UIDartState::ThrowIfUIOperationsProhibited();
+  FontCollection& font_collection = UIDartState::Current()
+                                        ->platform_configuration()
+                                        ->client()
+                                        ->GetFontCollection();
+  sk_sp<SkTypeface> typeface =
+      txt::GetDefaultFontManager()->makeFromFile(path.c_str(), 0);
+  if (!typeface) {
+    return false;
+  }
+  txt::TypefaceFontAssetProvider& font_provider =
+      font_collection.dynamic_font_manager_->font_provider();
+  if (family_name.empty()) {
+    font_provider.RegisterTypeface(typeface);
+  } else {
+    font_provider.RegisterTypeface(typeface, family_name);
+  }
+  font_collection.collection_->ClearFontFamilyCache();
+  txt::FontCollection::NotifyFontsChanged();
+  return true;
+}
+
+bool FontCollection::UnloadFontFamily(const std::string& family_name) {
+  UIDartState::ThrowIfUIOperationsProhibited();
+  FontCollection& font_collection = UIDartState::Current()
+                                        ->platform_configuration()
+                                        ->client()
+                                        ->GetFontCollection();
+  txt::TypefaceFontAssetProvider& font_provider =
+      font_collection.dynamic_font_manager_->font_provider();
+  if (!font_provider.UnregisterFamily(family_name)) {
+    return false;
+  }
+  font_collection.collection_->ClearFontFamilyCache();
+  txt::FontCollection::NotifyFontsChanged();
+  // Glyph caches hold references to the typeface.
+  SkGraphics::PurgeFontCache();
+#if IMPELLER_SUPPORTS_RENDERING
+  impeller::LazyGlyphAtlas::EvictAllGlyphs();
+#endif
+  return true;
 }
 
 }  // namespace flutter
