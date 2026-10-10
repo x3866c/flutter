@@ -277,7 +277,9 @@ void PositionedText::paint(Canvas* canvas, double x, double y) {
 
 void PositionedText::dispose() {
   runs_.clear();
+  Dart_EnterScope();
   ClearDartWrapper();
+  Dart_ExitScope();
 }
 
 }  // namespace flutter

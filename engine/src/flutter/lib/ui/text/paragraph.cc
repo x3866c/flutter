@@ -250,7 +250,11 @@ int Paragraph::getLineNumberAt(size_t utf16Offset) const {
 
 void Paragraph::dispose() {
   m_paragraph_.reset();
+  // FFI calls without handle arguments get no API scope. Root isolates always
+  // have an outer scope, isolates on the Dart thread pool do not.
+  Dart_EnterScope();
   ClearDartWrapper();
+  Dart_ExitScope();
 }
 
 }  // namespace flutter
