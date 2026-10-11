@@ -5,6 +5,7 @@
 #include "flutter/lib/ui/text/positioned_text.h"
 
 #include <algorithm>
+#include <chrono>
 #include <limits>
 #include <string>
 #include <map>
@@ -44,6 +45,12 @@ IMPLEMENT_WRAPPERTYPEINFO(ui, PositionedText);
 namespace {
 
 namespace skt = skia::textlayout;
+
+// Debug counters (InternalFlutterText_DebugPositionedTextStats).
+int64_t g_fallback_lookups = 0;
+int64_t g_fallback_micros = 0;
+int64_t g_baseline_paragraphs = 0;
+int64_t g_baseline_micros = 0;
 
 constexpr SkFourByteTag kWeightAxisTag = SkSetFourByteTag('w', 'g', 'h', 't');
 
@@ -90,9 +97,14 @@ sk_sp<SkTypeface> ResolveTypeface(ResolvedStyle& style,
   if (found != style.fallbacks.end()) {
     fallback = found->second;
   } else {
+    auto start = std::chrono::steady_clock::now();
     fallback = collection.defaultFallback(unichar, style.families,
                                           style.font_style, locale,
                                           style.font_args);
+    g_fallback_lookups++;
+    g_fallback_micros += std::chrono::duration_cast<std::chrono::microseconds>(
+                             std::chrono::steady_clock::now() - start)
+                             .count();
     style.fallbacks.emplace(unichar, fallback);
   }
   if (fallback) {
@@ -154,6 +166,7 @@ static float BaselineFor(const ResolvedStyle& style,
     return found->second;
   }
 
+  auto baseline_start = std::chrono::steady_clock::now();
   txt::TextStyle text_style;
   text_style.font_families = style.family_names;
   text_style.font_size = style.font_size;
@@ -195,6 +208,10 @@ static float BaselineFor(const ResolvedStyle& style,
   // logical pixels; do the same.
   float baseline = SkScalarFloorToScalar(
       static_cast<float>(paragraph->GetAlphabeticBaseline()) + 0.5f);
+  g_baseline_paragraphs++;
+  g_baseline_micros += std::chrono::duration_cast<std::chrono::microseconds>(
+                           std::chrono::steady_clock::now() - baseline_start)
+                           .count();
   if (cache.size() > 4096) {
     cache.clear();
   }
@@ -484,6 +501,47 @@ FLUTTER_TEXT_EXPORT int64_t InternalFlutterText_DrawPositionedTextBoxes(
       locale, &heights, &runs);
   flutter::PositionedText::PaintRuns(runs, canvas, dx, dy);
   return count;
+}
+
+FLUTTER_TEXT_EXPORT void InternalFlutterText_DebugPositionedTextStats(
+    int64_t* out) {
+  out[0] = flutter::g_fallback_lookups;
+  out[1] = flutter::g_fallback_micros;
+  out[2] = flutter::g_baseline_paragraphs;
+  out[3] = flutter::g_baseline_micros;
+}
+
+// Resolves the same glyph runs InternalFlutterText_DrawPositionedTextBoxes
+// would, without drawing: font fallback, baselines and the glyph metrics
+// behind the text frames are cached, so that a later draw of these
+// characters is cheap. Lets callers spread that work over idle frames.
+FLUTTER_TEXT_EXPORT int64_t InternalFlutterText_PrewarmPositionedTextBoxes(
+    Dart_Handle text_handle,
+    Dart_Handle positions,
+    Dart_Handle style_indices,
+    Dart_Handle style_ints,
+    Dart_Handle style_floats,
+    Dart_Handle families_handle,
+    Dart_Handle heights_handle,
+    Dart_Handle locale_handle) {
+  flutter::UIDartState* state = flutter::UIDartState::Current();
+  if (!state || !state->IsRootIsolate()) {
+    return -1;
+  }
+  std::u16string text =
+      tonic::DartConverter<std::u16string>::FromDart(text_handle);
+  std::vector<std::string> families =
+      tonic::DartConverter<std::vector<std::string>>::FromDart(
+          families_handle);
+  tonic::Float32List heights_list(heights_handle);
+  std::vector<float> heights(heights_list.data(),
+                             heights_list.data() + heights_list.num_elements());
+  heights_list.Release();
+  std::string locale = tonic::DartConverter<std::string>::FromDart(locale_handle);
+  std::vector<flutter::PositionedText::Run> runs;
+  return flutter::PositionedText::BuildRuns(
+      text, positions, style_indices, style_ints, style_floats, families,
+      locale, &heights, &runs);
 }
 
 }  // extern "C"
