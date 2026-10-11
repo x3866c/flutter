@@ -45,6 +45,11 @@ class FontCollection {
   // paragraphs, pictures and glyph caches that use it are gone.
   static bool UnloadFontFamily(const std::string& family_name);
 
+  // Same as above without the root isolate check, for the C entry points.
+  static bool LoadFontFromFileInRootIsolate(const std::string& path,
+                                            const std::string& family_name);
+  static bool UnloadFontFamilyInRootIsolate(const std::string& family_name);
+
  private:
   std::shared_ptr<txt::FontCollection> collection_;
   sk_sp<txt::DynamicFontManager> dynamic_font_manager_;

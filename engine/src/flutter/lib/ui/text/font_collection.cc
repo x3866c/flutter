@@ -6,6 +6,7 @@
 
 #include <mutex>
 
+#include "flutter/fml/build_config.h"
 #include "flutter/lib/ui/text/asset_manager_font_provider.h"
 #include "flutter/lib/ui/ui_dart_state.h"
 #include "flutter/lib/ui/window/platform_configuration.h"
@@ -183,6 +184,12 @@ void FontCollection::LoadFontFromList(Dart_Handle font_data_handle,
 bool FontCollection::LoadFontFromFile(const std::string& path,
                                       const std::string& family_name) {
   UIDartState::ThrowIfUIOperationsProhibited();
+  return LoadFontFromFileInRootIsolate(path, family_name);
+}
+
+bool FontCollection::LoadFontFromFileInRootIsolate(
+    const std::string& path,
+    const std::string& family_name) {
   FontCollection& font_collection = UIDartState::Current()
                                         ->platform_configuration()
                                         ->client()
@@ -206,6 +213,11 @@ bool FontCollection::LoadFontFromFile(const std::string& path,
 
 bool FontCollection::UnloadFontFamily(const std::string& family_name) {
   UIDartState::ThrowIfUIOperationsProhibited();
+  return UnloadFontFamilyInRootIsolate(family_name);
+}
+
+bool FontCollection::UnloadFontFamilyInRootIsolate(
+    const std::string& family_name) {
   FontCollection& font_collection = UIDartState::Current()
                                         ->platform_configuration()
                                         ->client()
@@ -226,3 +238,37 @@ bool FontCollection::UnloadFontFamily(const std::string& family_name) {
 }
 
 }  // namespace flutter
+
+// C entry points for the two functions above, so that apps can call them
+// through dart:ffi and fall back to loadFontFromList on engines without them.
+// Must be called from the root isolate; return false otherwise.
+
+#if FML_OS_WIN
+#define FLUTTER_TEXT_EXPORT __declspec(dllexport)
+#else
+#define FLUTTER_TEXT_EXPORT __attribute__((visibility("default")))
+#endif
+
+extern "C" {
+
+FLUTTER_TEXT_EXPORT bool InternalFlutterText_LoadFontFromFile(
+    const char* path,
+    const char* family_name) {
+  flutter::UIDartState* state = flutter::UIDartState::Current();
+  if (!state || !state->IsRootIsolate() || !path) {
+    return false;
+  }
+  return flutter::FontCollection::LoadFontFromFileInRootIsolate(
+      path, family_name ? family_name : "");
+}
+
+FLUTTER_TEXT_EXPORT bool InternalFlutterText_UnloadFontFamily(
+    const char* family_name) {
+  flutter::UIDartState* state = flutter::UIDartState::Current();
+  if (!state || !state->IsRootIsolate() || !family_name) {
+    return false;
+  }
+  return flutter::FontCollection::UnloadFontFamilyInRootIsolate(family_name);
+}
+
+}  // extern "C"
