@@ -38,7 +38,6 @@
 #include "flutter/lib/ui/text/font_collection.h"
 #include "flutter/lib/ui/text/paragraph.h"
 #include "flutter/lib/ui/text/paragraph_builder.h"
-#include "flutter/lib/ui/text/positioned_text.h"
 #include "flutter/lib/ui/window/platform_configuration.h"
 #include "flutter/lib/ui/window/platform_isolate.h"
 #include "third_party/tonic/converter/dart_converter.h"
@@ -78,7 +77,6 @@ typedef CanvasPath Path;
   V(ImageShader::Create)                                           \
   V(ParagraphBuilder::Create)                                      \
   V(PathMeasure::Create)                                           \
-  V(PositionedText::Create)                                        \
   V(Path::Create)                                                  \
   V(PictureRecorder::Create)                                       \
   V(RSuperellipse::Create)                                         \
@@ -86,8 +84,6 @@ typedef CanvasPath Path;
   V(SemanticsUpdateBuilder::Create)                                \
   /* Other */                                                      \
   V(FontCollection::LoadFontFromList)                              \
-  V(FontCollection::LoadFontFromFile)                              \
-  V(FontCollection::UnloadFontFamily)                              \
   V(ImageDescriptor::initEncoded)                                  \
   V(Image::decodeImageFromPixelsSync)                              \
   V(ImageFilter::equals)                                           \
@@ -251,10 +247,6 @@ typedef CanvasPath Path;
   V(Paragraph, paint)                            \
   V(Paragraph, width)                            \
   V(PathMeasure, setPath)                        \
-  V(PositionedText, dispose)                     \
-  V(PositionedText, glyphCount)                  \
-  V(PositionedText, paint)                       \
-  V(PositionedText, runCount)                    \
   V(PathMeasure, getLength)                      \
   V(PathMeasure, getPosTan)                      \
   V(PathMeasure, getSegment)                     \
