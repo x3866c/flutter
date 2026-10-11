@@ -1,50 +1,62 @@
-# 在 fork 上编 Flutter 引擎 android_release_arm64（编当前分支的源码，补丁以提交形式放在 patched/* 分支上）。
-# 记录腾出的磁盘、拉依赖耗时、全量 / 增量编译耗时和产物大小。
+# 在 fork 上编 Flutter 引擎的 Android release 版 libflutter.so（arm / arm64 / x64 三个 ABI 并行），
+# 打成一个包发到 Release（标签 android-engine-<Flutter 版本>-<提交号前 10 位>）。
+# 使用方只用它替换官方引擎包里的 libflutter.so，Flutter SDK 和 Dart 工具链照旧用官方同版本的。
 name: engine-android
 
 on:
   workflow_dispatch:
   push:
     branches: ['patched/**']
+    paths:
+      - 'engine/**'
+      - 'DEPS'
+      - '.github/workflows/engine-android.yml'
+
+permissions:
+  contents: write
 
 jobs:
-  android_release_arm64:
+  build:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - cpu: arm
+            out: android_release
+            abi: armeabi-v7a
+          - cpu: arm64
+            out: android_release_arm64
+            abi: arm64-v8a
+          - cpu: x64
+            out: android_release_x64
+            abi: x86_64
     steps:
-      - name: 磁盘（清理前）
-        run: df -h
-
       - name: 删掉用不到的预装工具链
         run: |
-          start=$(date +%s)
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup \
             /opt/hostedtoolcache /usr/local/share/boost /usr/local/share/powershell \
             /usr/share/swift /usr/local/julia* /opt/az /usr/lib/jvm || true
           sudo docker image prune --all --force > /dev/null || true
           sudo apt-get clean
-          echo "CLEAN_SEC=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
           df -h
 
       - name: 工作目录
-        # 不能用 $HOME/work：那是 GitHub 放仓库代码的目录。根分区清理后约 120GB 空闲，够用。
+        # 不能用 $HOME/work：那是 GitHub 放仓库代码的目录。
         run: mkdir -p "$HOME/engine-build" && echo "WORK=$HOME/engine-build" >> "$GITHUB_ENV"
-
-      - name: 后台记录磁盘峰值
-        run: |
-          nohup bash -c 'while true; do df --output=used -k "$WORK" | tail -1 >> /tmp/disk_used.log; sleep 30; done' > /dev/null 2>&1 &
 
       - name: 安装 depot_tools
         run: |
           git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$WORK/depot_tools"
           echo "$WORK/depot_tools" >> "$GITHUB_PATH"
 
-      - name: 拉当前分支源码和引擎依赖
+      - name: 拉源码和引擎依赖
         run: |
-          start=$(date +%s)
           cd "$WORK"
           git clone --depth 1 --branch "$GITHUB_REF_NAME" "https://github.com/$GITHUB_REPOSITORY.git" flutter
           cd flutter
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA" || { echo "分支已前进，放弃这次编译"; exit 1; }
           cat > .gclient <<'GCLIENT'
           solutions = [
             {
@@ -62,54 +74,52 @@ jobs:
           ]
           GCLIENT
           gclient sync --no-history --shallow -D
-          echo "SYNC_SEC=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
-          du -sh "$WORK/flutter" || true
-          df -h "$WORK"
 
-      - name: 编译 android_release_arm64
+      - name: 编译 ${{ matrix.out }}
         run: |
-          start=$(date +%s)
           cd "$WORK/flutter/engine/src"
-          ./flutter/tools/gn --runtime-mode release --android --android-cpu arm64 --no-rbe --no-goma
-          ninja -C out/android_release_arm64 default clang_x64/gen_snapshot flutter/shell/platform/android:abi_jars
-          echo "BUILD_SEC=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
+          ./flutter/tools/gn --runtime-mode release --android --android-cpu ${{ matrix.cpu }} --no-rbe --no-goma
+          ninja -C out/${{ matrix.out }} flutter/shell/platform/android:android_jar
+          mkdir -p "$WORK/dist/${{ matrix.abi }}"
+          cp out/${{ matrix.out }}/lib.stripped/libflutter.so "$WORK/dist/${{ matrix.abi }}/libflutter.so"
+          ls -lh "$WORK/dist/${{ matrix.abi }}"
 
-      - name: 改一个文件后增量编译
-        run: |
-          start=$(date +%s)
-          cd "$WORK/flutter/engine/src"
-          touch flutter/lib/ui/painting/canvas.cc
-          ninja -C out/android_release_arm64 default clang_x64/gen_snapshot flutter/shell/platform/android:abi_jars
-          echo "INCR_SEC=$(( $(date +%s) - start ))" >> "$GITHUB_ENV"
-
-      - name: 汇总
-        if: always()
-        run: |
-          out="$WORK/flutter/engine/src/out/android_release_arm64"
-          peak=$(sort -n /tmp/disk_used.log 2>/dev/null | tail -1)
-          {
-            echo "## android_release_arm64（$GITHUB_REF_NAME @ ${GITHUB_SHA:0:10}，$(nproc) 核）"
-            echo "| 项目 | 结果 |"
-            echo "|---|---|"
-            echo "| 清理预装工具链 | ${CLEAN_SEC:-?}s |"
-            echo "| 拉源码 + gclient sync | ${SYNC_SEC:-?}s |"
-            echo "| 首次全量编译 | ${BUILD_SEC:-?}s |"
-            echo "| 改 canvas.cc 后增量编译 | ${INCR_SEC:-?}s |"
-            echo "| 工作盘已用峰值 | $(( ${peak:-0} / 1024 / 1024 ))GB |"
-            echo "| 源码 + 产物目录 | $(du -sh "$WORK/flutter" 2>/dev/null | cut -f1) |"
-            echo "| out 目录 | $(du -sh "$out" 2>/dev/null | cut -f1) |"
-            echo "| libflutter.so | $(ls -lh "$out"/libflutter.so 2>/dev/null | awk '{print $5}') |"
-            echo "| arm64_v8a_release.jar | $(ls -lh "$out"/arm64_v8a_release.jar 2>/dev/null | awk '{print $5}') |"
-          } | tee -a "$GITHUB_STEP_SUMMARY"
-          df -h
-
-      - name: 上传产物
+      - name: 上传
         uses: actions/upload-artifact@v4
         with:
-          name: android_release_arm64
-          path: |
-            ${{ env.WORK }}/flutter/engine/src/out/android_release_arm64/libflutter.so
-            ${{ env.WORK }}/flutter/engine/src/out/android_release_arm64/arm64_v8a_release.jar
-            ${{ env.WORK }}/flutter/engine/src/out/android_release_arm64/clang_x64/gen_snapshot
-          if-no-files-found: warn
+          name: libflutter-${{ matrix.abi }}
+          path: ${{ env.WORK }}/dist/${{ matrix.abi }}/libflutter.so
+          if-no-files-found: error
           retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: 取三个 ABI 的产物
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: 打包
+        run: |
+          mkdir -p dist
+          for abi in armeabi-v7a arm64-v8a x86_64; do
+            mkdir -p "dist/$abi"
+            cp "artifacts/libflutter-$abi/libflutter.so" "dist/$abi/libflutter.so"
+          done
+          tar -C dist -czf android-release-libflutter.tar.gz armeabi-v7a arm64-v8a x86_64
+          sha256sum android-release-libflutter.tar.gz | tee android-release-libflutter.tar.gz.sha256
+          version=$(echo "$GITHUB_REF_NAME" | sed 's|^patched/||')
+          echo "TAG=android-engine-$version-${GITHUB_SHA:0:10}" >> "$GITHUB_ENV"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: 发布 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="Flutter $VERSION + patches, commit $GITHUB_SHA. Release libflutter.so for armeabi-v7a / arm64-v8a / x86_64; replace the one from the official engine of the same Flutter version.
+
+          sha256: $(cut -d' ' -f1 android-release-libflutter.tar.gz.sha256)"
+          gh release create "$TAG" android-release-libflutter.tar.gz android-release-libflutter.tar.gz.sha256 \
+            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG" --notes "$notes"
