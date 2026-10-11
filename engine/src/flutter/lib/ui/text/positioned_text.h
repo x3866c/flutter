@@ -52,11 +52,28 @@ class PositionedText : public RefCountedDartWrappable<PositionedText> {
 
   void dispose();
 
- private:
   struct Run {
     std::shared_ptr<DlText> text;
     DlColor color;
   };
+
+  // See positioned_text.cc. Returns the number of glyphs in |runs|.
+  static int BuildRuns(const std::u16string& text,
+                       Dart_Handle positions,
+                       Dart_Handle style_indices,
+                       Dart_Handle style_ints,
+                       Dart_Handle style_floats,
+                       const std::vector<std::string>& families,
+                       const std::string& locale,
+                       const std::vector<float>* heights,
+                       std::vector<Run>* runs);
+
+  static void PaintRuns(const std::vector<Run>& runs,
+                        Canvas* canvas,
+                        double x,
+                        double y);
+
+ private:
 
   PositionedText();
 
