@@ -187,6 +187,7 @@ source_set("ui") {
     "//flutter/runtime:dart_plugin_registrant",
     "//flutter/runtime:test_font",
     "//flutter/skia",
+    "//flutter/skia/modules/skshaper",
     "//flutter/third_party/rapidjson",
     "//flutter/third_party/tonic",
     "//third_party/abseil-cpp/absl/status:statusor",
