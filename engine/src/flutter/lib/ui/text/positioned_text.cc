@@ -14,18 +14,22 @@
 #include <utility>
 
 #include "flutter/display_list/dl_paint.h"
-#include "flutter/fml/build_config.h"
 #include "flutter/display_list/dl_text_skia.h"
+#include "flutter/fml/build_config.h"
 #include "flutter/lib/ui/text/font_collection.h"
 #include "flutter/lib/ui/ui_dart_state.h"
 #include "flutter/lib/ui/window/platform_configuration.h"
 #include "third_party/skia/include/core/SkFont.h"
 #include "third_party/skia/include/core/SkFontArguments.h"
+#include "third_party/skia/include/core/SkFontMgr.h"
 #include "third_party/skia/include/core/SkFontStyle.h"
 #include "third_party/skia/include/core/SkTextBlob.h"
 #include "third_party/skia/include/core/SkTypeface.h"
 #include "third_party/skia/modules/skparagraph/include/FontArguments.h"  // nogncheck
 #include "third_party/skia/modules/skparagraph/include/FontCollection.h"  // nogncheck
+#include "third_party/skia/modules/skshaper/include/SkShaper.h"  // nogncheck
+#include "third_party/skia/modules/skshaper/include/SkShaper_harfbuzz.h"  // nogncheck
+#include "third_party/skia/modules/skunicode/include/SkUnicode_icu.h"  // nogncheck
 #include "third_party/tonic/converter/dart_converter.h"
 #include "third_party/tonic/typed_data/typed_list.h"
 #include "txt/font_collection.h"
@@ -77,6 +81,104 @@ struct Group {
   std::vector<SkPoint> points;
 };
 
+// Collects the glyphs HarfBuzz produces for a short piece of text.
+class GlyphCollector : public SkShaper::RunHandler {
+ public:
+  void beginLine() override {}
+  void runInfo(const RunInfo&) override {}
+  void commitRunInfo() override {}
+  Buffer runBuffer(const RunInfo& info) override {
+    size_t start = glyphs.size();
+    glyphs.resize(start + info.glyphCount);
+    positions_.resize(glyphs.size());
+    return {glyphs.data() + start,
+            positions_.data() + start,
+            nullptr,
+            nullptr,
+            {0, 0}};
+  }
+  void commitRunBuffer(const RunInfo&) override {}
+  void commitLine() override {}
+
+  std::vector<SkGlyphID> glyphs;
+
+ private:
+  std::vector<SkPoint> positions_;
+};
+
+size_t EncodeUtf8(SkUnichar c, char out[4]) {
+  if (c < 0x80) {
+    out[0] = static_cast<char>(c);
+    return 1;
+  }
+  if (c < 0x800) {
+    out[0] = static_cast<char>(0xC0 | (c >> 6));
+    out[1] = static_cast<char>(0x80 | (c & 0x3F));
+    return 2;
+  }
+  if (c < 0x10000) {
+    out[0] = static_cast<char>(0xE0 | (c >> 12));
+    out[1] = static_cast<char>(0x80 | ((c >> 6) & 0x3F));
+    out[2] = static_cast<char>(0x80 | (c & 0x3F));
+    return 3;
+  }
+  out[0] = static_cast<char>(0xF0 | (c >> 18));
+  out[1] = static_cast<char>(0x80 | ((c >> 12) & 0x3F));
+  out[2] = static_cast<char>(0x80 | ((c >> 6) & 0x3F));
+  out[3] = static_cast<char>(0x80 | (c & 0x3F));
+  return 4;
+}
+
+// The glyph a one-character paragraph draws for |unichar| in |typeface|.
+// Paragraphs shape text with HarfBuzz, so default features such as `calt`
+// and `locl` can replace the cmap glyph (HarmonyOS Sans SC swaps the curly
+// quotes this way). Falls back to |cmap_glyph| when shaping does not give
+// exactly one glyph. Results are cached per typeface, character and locale.
+SkGlyphID ShapedGlyph(const sk_sp<SkTypeface>& typeface,
+                      SkUnichar unichar,
+                      SkGlyphID cmap_glyph,
+                      const SkString& locale) {
+  static std::unordered_map<std::string, SkGlyphID> cache;
+  std::string key = std::to_string(typeface->uniqueID());
+  key.push_back('|');
+  key.append(std::to_string(unichar));
+  key.push_back('|');
+  key.append(locale.c_str());
+  auto found = cache.find(key);
+  if (found != cache.end()) {
+    return found->second;
+  }
+
+  static sk_sp<SkUnicode> unicode = SkUnicodes::ICU::Make();
+  SkGlyphID result = cmap_glyph;
+  std::unique_ptr<SkShaper> shaper =
+      unicode ? SkShapers::HB::ShapeDontWrapOrReorder(unicode,
+                                                      SkFontMgr::RefEmpty())
+              : nullptr;
+  if (shaper) {
+    char utf8[4];
+    size_t length = EncodeUtf8(unichar, utf8);
+    SkFont font(typeface, 16);
+    SkShaper::TrivialFontRunIterator font_iter(font, length);
+    SkShaper::TrivialBiDiRunIterator bidi_iter(0, length);
+    std::unique_ptr<SkShaper::ScriptRunIterator> script_iter =
+        SkShapers::HB::ScriptRunIterator(utf8, length);
+    SkShaper::TrivialLanguageRunIterator language_iter(locale.c_str(), length);
+    GlyphCollector collector;
+    shaper->shape(utf8, length, font_iter, bidi_iter, *script_iter,
+                  language_iter, nullptr, 0, std::numeric_limits<float>::max(),
+                  &collector);
+    if (collector.glyphs.size() == 1 && collector.glyphs.front() != 0) {
+      result = collector.glyphs.front();
+    }
+  }
+  if (cache.size() > 65536) {
+    cache.clear();
+  }
+  cache.emplace(std::move(key), result);
+  return result;
+}
+
 // Mirrors how a paragraph picks a typeface for a code point: the first
 // requested family that has the glyph, otherwise the platform fallback,
 // otherwise the first family (drawing its missing-glyph box).
@@ -88,7 +190,7 @@ sk_sp<SkTypeface> ResolveTypeface(ResolvedStyle& style,
   for (const sk_sp<SkTypeface>& typeface : style.typefaces) {
     SkGlyphID id = typeface->unicharToGlyph(unichar);
     if (id != 0) {
-      *glyph = id;
+      *glyph = ShapedGlyph(typeface, unichar, id, locale);
       return typeface;
     }
   }
@@ -110,7 +212,7 @@ sk_sp<SkTypeface> ResolveTypeface(ResolvedStyle& style,
   if (fallback) {
     SkGlyphID id = fallback->unicharToGlyph(unichar);
     if (id != 0) {
-      *glyph = id;
+      *glyph = ShapedGlyph(fallback, unichar, id, locale);
       return fallback;
     }
   }
