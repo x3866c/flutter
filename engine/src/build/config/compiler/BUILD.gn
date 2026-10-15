@@ -832,6 +832,11 @@ if (is_win) {
       "-Wno-ambiguous-reversed-operator",
     ]
   }
+  if (is_ohos && !use_llvm18 && !unuse_bisheng) {
+    # Newer BiSheng releases (HarmonyOS SDK 26) report float-to-int casts in
+    # Skia headers that other clang builds accept.
+    default_warning_flags += [ "-Wno-float-to-int-overflow" ]
+  }
   if (!is_fuchsia && is_clang) {
     default_warning_flags += [
       "-Wno-non-c-typedef-for-linkage",
