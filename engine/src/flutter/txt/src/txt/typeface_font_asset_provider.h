@@ -5,6 +5,7 @@
 #ifndef FLUTTER_TXT_SRC_TXT_TYPEFACE_FONT_ASSET_PROVIDER_H_
 #define FLUTTER_TXT_SRC_TXT_TYPEFACE_FONT_ASSET_PROVIDER_H_
 
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -36,6 +37,8 @@ class TypefaceFontStyleSet : public SkFontStyleSet {
   sk_sp<SkTypeface> matchStyle(const SkFontStyle& pattern) override;
 
  private:
+  // Fonts may be registered on the UI thread while background isolates read.
+  std::mutex mutex_;
   std::vector<sk_sp<SkTypeface>> typefaces_;
 
   FML_DISALLOW_COPY_AND_ASSIGN(TypefaceFontStyleSet);
@@ -51,6 +54,10 @@ class TypefaceFontAssetProvider : public FontAssetProvider {
   void RegisterTypeface(sk_sp<SkTypeface> typeface,
                         const std::string& family_name_alias);
 
+  // Removes a family and its typefaces. Returns false if it was not
+  // registered.
+  bool UnregisterFamily(const std::string& family_name);
+
   // |FontAssetProvider|
   size_t GetFamilyCount() const override;
 
@@ -61,6 +68,7 @@ class TypefaceFontAssetProvider : public FontAssetProvider {
   sk_sp<SkFontStyleSet> MatchFamily(const std::string& family_name) override;
 
  private:
+  mutable std::mutex mutex_;
   std::unordered_map<std::string, sk_sp<TypefaceFontStyleSet>>
       registered_families_;
   std::vector<std::string> family_names_;

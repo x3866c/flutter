@@ -76,10 +76,12 @@ AssetManagerFontStyleSet::AssetManagerFontStyleSet(
 AssetManagerFontStyleSet::~AssetManagerFontStyleSet() = default;
 
 void AssetManagerFontStyleSet::registerAsset(const std::string& asset) {
+  std::lock_guard<std::mutex> lock(mutex_);
   assets_.emplace_back(asset);
 }
 
 int AssetManagerFontStyleSet::count() {
+  std::lock_guard<std::mutex> lock(mutex_);
   return assets_.size();
 }
 
@@ -99,6 +101,7 @@ void AssetManagerFontStyleSet::getStyle(int index,
 }
 
 auto AssetManagerFontStyleSet::createTypeface(int i) -> CreateTypefaceRet {
+  std::lock_guard<std::mutex> lock(mutex_);
   size_t index = i;
   if (index >= assets_.size()) {
     return nullptr;

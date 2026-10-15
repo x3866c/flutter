@@ -6,6 +6,7 @@
 
 #include <mutex>
 
+#include "flutter/fml/build_config.h"
 #include "flutter/lib/ui/text/asset_manager_font_provider.h"
 #include "flutter/lib/ui/ui_dart_state.h"
 #include "flutter/lib/ui/window/platform_configuration.h"
@@ -23,6 +24,10 @@
 #include "txt/asset_font_manager.h"
 #include "txt/platform.h"
 #include "txt/test_font_manager.h"
+
+#if IMPELLER_SUPPORTS_RENDERING
+#include "impeller/typographer/lazy_glyph_atlas.h"  // nogncheck
+#endif
 
 #if FML_OS_MACOSX || FML_OS_IOS
 #include "txt/platform_mac.h"
@@ -175,4 +180,92 @@ void FontCollection::LoadFontFromList(Dart_Handle font_data_handle,
   tonic::DartInvoke(callback, {tonic::ToDart(0)});
 }
 
+bool FontCollection::LoadFontFromFile(const std::string& path,
+                                      const std::string& family_name) {
+  UIDartState::ThrowIfUIOperationsProhibited();
+  return LoadFontFromFileInRootIsolate(path, family_name);
+}
+
+bool FontCollection::LoadFontFromFileInRootIsolate(
+    const std::string& path,
+    const std::string& family_name) {
+  FontCollection& font_collection = UIDartState::Current()
+                                        ->platform_configuration()
+                                        ->client()
+                                        ->GetFontCollection();
+  sk_sp<SkTypeface> typeface =
+      txt::GetDefaultFontManager()->makeFromFile(path.c_str(), 0);
+  if (!typeface) {
+    return false;
+  }
+  txt::TypefaceFontAssetProvider& font_provider =
+      font_collection.dynamic_font_manager_->font_provider();
+  if (family_name.empty()) {
+    font_provider.RegisterTypeface(typeface);
+  } else {
+    font_provider.RegisterTypeface(typeface, family_name);
+  }
+  font_collection.collection_->ClearFontFamilyCache();
+  return true;
+}
+
+bool FontCollection::UnloadFontFamily(const std::string& family_name) {
+  UIDartState::ThrowIfUIOperationsProhibited();
+  return UnloadFontFamilyInRootIsolate(family_name);
+}
+
+bool FontCollection::UnloadFontFamilyInRootIsolate(
+    const std::string& family_name) {
+  FontCollection& font_collection = UIDartState::Current()
+                                        ->platform_configuration()
+                                        ->client()
+                                        ->GetFontCollection();
+  txt::TypefaceFontAssetProvider& font_provider =
+      font_collection.dynamic_font_manager_->font_provider();
+  if (!font_provider.UnregisterFamily(family_name)) {
+    return false;
+  }
+  font_collection.collection_->ClearFontFamilyCache();
+  // Glyph caches hold references to the typeface.
+  SkGraphics::PurgeFontCache();
+#if IMPELLER_SUPPORTS_RENDERING
+  impeller::LazyGlyphAtlas::EvictAllGlyphs();
+#endif
+  return true;
+}
+
 }  // namespace flutter
+
+// C entry points for the two functions above, so that apps can call them
+// through dart:ffi and fall back to loadFontFromList on engines without them.
+// Must be called from the root isolate; return false otherwise.
+
+#if FML_OS_WIN
+#define FLUTTER_TEXT_EXPORT __declspec(dllexport)
+#else
+#define FLUTTER_TEXT_EXPORT __attribute__((visibility("default")))
+#endif
+
+extern "C" {
+
+FLUTTER_TEXT_EXPORT bool InternalFlutterText_LoadFontFromFile(
+    const char* path,
+    const char* family_name) {
+  flutter::UIDartState* state = flutter::UIDartState::Current();
+  if (!state || !state->IsRootIsolate() || !path) {
+    return false;
+  }
+  return flutter::FontCollection::LoadFontFromFileInRootIsolate(
+      path, family_name ? family_name : "");
+}
+
+FLUTTER_TEXT_EXPORT bool InternalFlutterText_UnloadFontFamily(
+    const char* family_name) {
+  flutter::UIDartState* state = flutter::UIDartState::Current();
+  if (!state || !state->IsRootIsolate() || !family_name) {
+    return false;
+  }
+  return flutter::FontCollection::UnloadFontFamilyInRootIsolate(family_name);
+}
+
+}  // extern "C"

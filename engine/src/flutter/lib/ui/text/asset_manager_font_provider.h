@@ -6,6 +6,7 @@
 #define FLUTTER_LIB_UI_TEXT_ASSET_MANAGER_FONT_PROVIDER_H_
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -57,6 +58,8 @@ class AssetManagerFontStyleSet : public SkFontStyleSet {
     std::string asset;
     sk_sp<SkTypeface> typeface;
   };
+  // Typefaces are loaded lazily and may be requested from background isolates.
+  std::mutex mutex_;
   std::vector<TypefaceAsset> assets_;
 
   FML_DISALLOW_COPY_AND_ASSIGN(AssetManagerFontStyleSet);

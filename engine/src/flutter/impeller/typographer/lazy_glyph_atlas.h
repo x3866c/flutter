@@ -5,6 +5,8 @@
 #ifndef FLUTTER_IMPELLER_TYPOGRAPHER_LAZY_GLYPH_ATLAS_H_
 #define FLUTTER_IMPELLER_TYPOGRAPHER_LAZY_GLYPH_ATLAS_H_
 
+#include <atomic>
+
 #include "impeller/geometry/rational.h"
 #include "impeller/renderer/context.h"
 #include "impeller/typographer/glyph_atlas.h"
@@ -26,6 +28,11 @@ class LazyGlyphAtlas {
                     const std::optional<GlyphProperties>& properties);
 
   void ResetTextFrames();
+
+  /// Makes every LazyGlyphAtlas drop its cached glyphs (and the typefaces they
+  /// reference) the next time it builds an atlas. Safe to call from any thread,
+  /// e.g. after a font is unregistered.
+  static void EvictAllGlyphs();
 
   const std::shared_ptr<GlyphAtlas>& CreateOrGetGlyphAtlas(
       Context& context,
@@ -49,6 +56,8 @@ class LazyGlyphAtlas {
 
   AtlasData alpha_data_;
   AtlasData color_data_;
+  uint64_t seen_eviction_generation_ = 0;
+  static std::atomic<uint64_t> eviction_generation_;
 
   AtlasData& GetData(GlyphAtlas::Type type);
 
