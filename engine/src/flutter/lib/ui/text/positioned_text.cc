@@ -40,6 +40,7 @@
 
 #if IMPELLER_SUPPORTS_RENDERING
 #include "flutter/impeller/display_list/dl_text_impeller.h"  // nogncheck
+#include "flutter/impeller/typographer/glyph_atlas.h"        // nogncheck
 #endif
 
 namespace flutter {
@@ -680,6 +681,20 @@ FLUTTER_TEXT_EXPORT int64_t InternalFlutterText_PrewarmPositionedTextBoxes(
   return flutter::PositionedText::BuildRuns(
       text, positions, style_indices, style_ints, style_floats, families,
       locale, &heights, &runs);
+}
+
+// Sets a 256 entry lookup table applied to the coverage of glyphs as they are
+// rendered into the glyph atlas, or clears it when |table| is null. Glyphs
+// already in the atlas are rendered again on their next use. Only affects the
+// Impeller renderer; returns false when the table cannot be applied.
+FLUTTER_TEXT_EXPORT bool InternalFlutterText_SetGlyphCoverageTable(
+    const uint8_t* table) {
+#if IMPELLER_SUPPORTS_RENDERING
+  impeller::GlyphCoverageCurve::Set(table);
+  return true;
+#else
+  return false;
+#endif
 }
 
 }  // extern "C"

@@ -4,12 +4,64 @@
 
 #include "impeller/typographer/glyph_atlas.h"
 
+#include <algorithm>
+#include <atomic>
+#include <mutex>
 #include <numeric>
 #include <utility>
 
 #include "impeller/typographer/font_glyph_pair.h"
 
 namespace impeller {
+
+namespace {
+std::mutex g_coverage_curve_mutex;
+std::optional<GlyphCoverageCurve::Table> g_coverage_curve;
+std::atomic<uint64_t> g_coverage_curve_generation{0};
+}  // namespace
+
+void GlyphCoverageCurve::Set(const uint8_t* table) {
+  std::scoped_lock lock(g_coverage_curve_mutex);
+  if (table) {
+    Table copy;
+    std::copy(table, table + copy.size(), copy.begin());
+    // Uncovered pixels must stay uncovered, the atlas is not cleared between
+    // glyphs.
+    copy[0] = 0;
+    if (g_coverage_curve.has_value() && g_coverage_curve.value() == copy) {
+      return;
+    }
+    g_coverage_curve = copy;
+  } else {
+    if (!g_coverage_curve.has_value()) {
+      return;
+    }
+    g_coverage_curve.reset();
+  }
+  g_coverage_curve_generation.fetch_add(1);
+}
+
+uint64_t GlyphCoverageCurve::GetGeneration() {
+  return g_coverage_curve_generation.load();
+}
+
+std::optional<GlyphCoverageCurve::Table> GlyphCoverageCurve::Get() {
+  std::scoped_lock lock(g_coverage_curve_mutex);
+  return g_coverage_curve;
+}
+
+void GlyphCoverageCurve::Apply(uint8_t* pixels,
+                               size_t row_bytes,
+                               int width,
+                               int height,
+                               const Table& table) {
+  for (int y = 0; y < height; y++) {
+    uint8_t* row = pixels + y * row_bytes;
+    for (int x = 0; x < width; x++) {
+      row[x] = table[row[x]];
+    }
+  }
+}
 
 GlyphAtlasContext::GlyphAtlasContext(GlyphAtlas::Type type)
     : atlas_(std::make_shared<GlyphAtlas>(type, /*initial_generation=*/0)),
@@ -39,6 +91,14 @@ void GlyphAtlasContext::UpdateGlyphAtlas(std::shared_ptr<GlyphAtlas> atlas,
   atlas_ = std::move(atlas);
   atlas_size_ = size;
   height_adjustment_ = height_adjustment;
+}
+
+uint64_t GlyphAtlasContext::GetCoverageCurveGeneration() const {
+  return coverage_curve_generation_;
+}
+
+void GlyphAtlasContext::SetCoverageCurveGeneration(uint64_t generation) {
+  coverage_curve_generation_ = generation;
 }
 
 void GlyphAtlasContext::UpdateRectPacker(

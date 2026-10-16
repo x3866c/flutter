@@ -5,6 +5,8 @@
 #ifndef FLUTTER_IMPELLER_TYPOGRAPHER_GLYPH_ATLAS_H_
 #define FLUTTER_IMPELLER_TYPOGRAPHER_GLYPH_ATLAS_H_
 
+#include <array>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -18,6 +20,37 @@
 namespace impeller {
 
 class FontGlyphAtlas;
+
+//------------------------------------------------------------------------------
+/// @brief      A process wide lookup table applied to the coverage of glyphs
+///             rendered into alpha glyph atlases.
+///
+///             Displays with slow or binary pixels (such as electrophoretic
+///             panels) can render the anti-aliased edge of thin strokes as
+///             unstable gray. Remapping the coverage of the glyph itself keeps
+///             images and other content untouched. Changing the table bumps
+///             the generation, which makes glyph atlases rebuild with the new
+///             table on their next use.
+///
+class GlyphCoverageCurve {
+ public:
+  using Table = std::array<uint8_t, 256>;
+
+  /// Sets the table, or clears it when |table| is null.
+  static void Set(const uint8_t* table);
+
+  static uint64_t GetGeneration();
+
+  /// Returns the active table, or `std::nullopt` when none is set.
+  static std::optional<Table> Get();
+
+  /// Applies |table| to an A8 region. to an A8 region.
+  static void Apply(uint8_t* pixels,
+                    size_t row_bytes,
+                    int width,
+                    int height,
+                    const Table& table);
+};
 
 struct FrameBounds {
   /// The bounds of the glyph within the glyph atlas texture.
@@ -226,11 +259,19 @@ class GlyphAtlasContext {
 
   void UpdateRectPacker(std::shared_ptr<RectanglePacker> rect_packer);
 
+  //----------------------------------------------------------------------------
+  /// @brief      The GlyphCoverageCurve generation the glyphs of the current
+  ///             atlas were rendered with.
+  uint64_t GetCoverageCurveGeneration() const;
+
+  void SetCoverageCurveGeneration(uint64_t generation);
+
  private:
   std::shared_ptr<GlyphAtlas> atlas_;
   ISize atlas_size_;
   std::shared_ptr<RectanglePacker> rect_packer_;
   int64_t height_adjustment_;
+  uint64_t coverage_curve_generation_ = 0;
 
   GlyphAtlasContext(const GlyphAtlasContext&) = delete;
 

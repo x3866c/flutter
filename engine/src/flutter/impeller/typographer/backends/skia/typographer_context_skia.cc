@@ -259,6 +259,17 @@ static void DrawGlyph(SkCanvas* canvas,
   canvas->restore();
 }
 
+static void ApplyCoverageCurve(
+    const SkBitmap& bitmap,
+    const std::optional<GlyphCoverageCurve::Table>& table) {
+  if (!table.has_value() || bitmap.colorType() != kAlpha_8_SkColorType) {
+    return;
+  }
+  GlyphCoverageCurve::Apply(static_cast<uint8_t*>(bitmap.getAddr(0, 0)),
+                            bitmap.rowBytes(), bitmap.width(), bitmap.height(),
+                            table.value());
+}
+
 /// @brief Batch render to a single surface.
 ///
 /// This is only safe for use when updating a fresh texture.
@@ -288,6 +299,11 @@ static bool BulkUpdateAtlasBitmap(const GlyphAtlas& atlas,
     return false;
   }
 
+  std::optional<GlyphCoverageCurve::Table> coverage_curve;
+  if (!has_color) {
+    coverage_curve = GlyphCoverageCurve::Get();
+  }
+
   for (size_t i = start_index; i < end_index; i++) {
     const FontGlyphPair& pair = new_pairs[i];
     auto data = atlas.FindFontGlyphBounds(pair);
@@ -305,6 +321,9 @@ static bool BulkUpdateAtlasBitmap(const GlyphAtlas& atlas,
               pair.scaled_font, pair.glyph, bounds, pair.glyph.properties,
               has_color);
   }
+  // Glyphs are drawn into a cleared bitmap and table[0] is 0, so the whole
+  // bitmap can be remapped at once.
+  ApplyCoverageCurve(bitmap, coverage_curve);
 
   // Writing to a malloc'd buffer and then copying to the staging buffers
   // benchmarks as substantially faster on a number of Android devices.
@@ -331,6 +350,10 @@ static bool UpdateAtlasBitmap(const GlyphAtlas& atlas,
   TRACE_EVENT0("impeller", __FUNCTION__);
 
   bool has_color = atlas.GetType() == GlyphAtlas::Type::kColorBitmap;
+  std::optional<GlyphCoverageCurve::Table> coverage_curve;
+  if (!has_color) {
+    coverage_curve = GlyphCoverageCurve::Get();
+  }
 
   for (size_t i = start_index; i < end_index; i++) {
     const FontGlyphPair& pair = new_pairs[i];
@@ -367,6 +390,7 @@ static bool UpdateAtlasBitmap(const GlyphAtlas& atlas,
 
     DrawGlyph(canvas, SkPoint::Make(1, 1), pair.scaled_font, pair.glyph, bounds,
               pair.glyph.properties, has_color);
+    ApplyCoverageCurve(bitmap, coverage_curve);
 
     // Writing to a malloc'd buffer and then copying to the staging buffers
     // benchmarks as substantially faster on a number of Android devices.
@@ -494,6 +518,21 @@ std::shared_ptr<GlyphAtlas> TypographerContextSkia::CreateGlyphAtlas(
 
   if (renderable_texts.empty()) {
     return last_atlas;
+  }
+
+  // Glyphs rendered with a previous coverage curve are stale, start over with
+  // an empty atlas.
+  const uint64_t coverage_curve_generation =
+      GlyphCoverageCurve::GetGeneration();
+  if (atlas_context->GetCoverageCurveGeneration() !=
+      coverage_curve_generation) {
+    atlas_context->SetCoverageCurveGeneration(coverage_curve_generation);
+    if (type == GlyphAtlas::Type::kAlphaBitmap && last_atlas->GetTexture()) {
+      last_atlas = std::make_shared<GlyphAtlas>(
+          type, /*initial_generation=*/last_atlas->GetAtlasGeneration() + 1);
+      atlas_context->UpdateRectPacker(nullptr);
+      atlas_context->UpdateGlyphAtlas(last_atlas, {0, 0}, 0);
+    }
   }
 
   // ---------------------------------------------------------------------------
