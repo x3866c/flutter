@@ -70,8 +70,21 @@ struct ResolvedStyle {
   DlColor color;
   std::optional<skt::FontArguments> font_args;
   std::vector<sk_sp<SkTypeface>> typefaces;
-  std::unordered_map<SkUnichar, sk_sp<SkTypeface>> fallbacks;
+  // Fallback typefaces of this style, shared across calls (FallbackCache).
+  std::unordered_map<SkUnichar, sk_sp<SkTypeface>>* fallbacks = nullptr;
 };
+
+// Platform fallback lookups are slow (tens of microseconds on some systems)
+// and a page asks for the same characters as the previous one, so results are
+// kept per style until fonts change (PositionedText::ClearFontCaches).
+std::unordered_map<std::string,
+                   std::unordered_map<SkUnichar, sk_sp<SkTypeface>>>&
+FallbackCache() {
+  static std::unordered_map<std::string,
+                            std::unordered_map<SkUnichar, sk_sp<SkTypeface>>>
+      cache;
+  return cache;
+}
 
 struct Group {
   int style = 0;
@@ -194,9 +207,9 @@ sk_sp<SkTypeface> ResolveTypeface(ResolvedStyle& style,
       return typeface;
     }
   }
-  auto found = style.fallbacks.find(unichar);
+  auto found = style.fallbacks->find(unichar);
   sk_sp<SkTypeface> fallback;
-  if (found != style.fallbacks.end()) {
+  if (found != style.fallbacks->end()) {
     fallback = found->second;
   } else {
     auto start = std::chrono::steady_clock::now();
@@ -207,7 +220,7 @@ sk_sp<SkTypeface> ResolveTypeface(ResolvedStyle& style,
     g_fallback_micros += std::chrono::duration_cast<std::chrono::microseconds>(
                              std::chrono::steady_clock::now() - start)
                              .count();
-    style.fallbacks.emplace(unichar, fallback);
+    style.fallbacks->emplace(unichar, fallback);
   }
   if (fallback) {
     SkGlyphID id = fallback->unicharToGlyph(unichar);
@@ -327,6 +340,10 @@ static float BaselineFor(const ResolvedStyle& style,
 // is placed the way a single-line paragraph with that style's height
 // multiplier places it (SkParagraph's Run::calculateMetrics, no half leading),
 // using the metrics of the typeface the glyph actually resolves to.
+void PositionedText::ClearFontCaches() {
+  FallbackCache().clear();
+}
+
 int PositionedText::BuildRuns(const std::u16string& text,
                               Dart_Handle positions_handle,
                               Dart_Handle style_indices_handle,
@@ -344,6 +361,10 @@ int PositionedText::BuildRuns(const std::u16string& text,
   sk_sp<skt::FontCollection> collection =
       CurrentFontCollection()->CreateSktFontCollection();
   SkString locale(locale_name.c_str());
+
+  if (FallbackCache().size() > 256) {
+    FallbackCache().clear();
+  }
 
   // Decode styles.
   std::vector<ResolvedStyle> styles;
@@ -396,6 +417,21 @@ int PositionedText::BuildRuns(const std::u16string& text,
         coordinates.data(), static_cast<int>(coordinates.size())};
     style.font_args = skt::FontArguments(
         SkFontArguments().setVariationDesignPosition(position));
+    std::string fallback_key = locale_name;
+    for (const std::string& family : style.family_names) {
+      fallback_key.push_back('|');
+      fallback_key.append(family);
+    }
+    fallback_key.push_back('|');
+    fallback_key.append(std::to_string(weight));
+    fallback_key.push_back(italic ? 'i' : 'n');
+    for (const auto& coordinate : coordinates) {
+      fallback_key.push_back('|');
+      fallback_key.append(std::to_string(coordinate.axis));
+      fallback_key.push_back('=');
+      fallback_key.append(std::to_string(coordinate.value));
+    }
+    style.fallbacks = &FallbackCache()[fallback_key];
     style.typefaces = collection->findTypefaces(
         style.families, style.font_style, style.font_args);
     styles.push_back(std::move(style));
