@@ -28,6 +28,10 @@ class PositionedText : public RefCountedDartWrappable<PositionedText> {
   FML_FRIEND_MAKE_REF_COUNTED(PositionedText);
 
  public:
+  // Drops cached font fallback results. Call after fonts are registered or
+  // removed at runtime.
+  static void ClearFontCaches();
+
   // Per style, |style_ints| holds: weight, slant (0 upright, 1 italic),
   // ARGB color, family count, variation count, then one four-byte tag per
   // variation. |style_floats| holds: font size, then one value per variation.

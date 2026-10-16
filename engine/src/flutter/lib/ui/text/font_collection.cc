@@ -8,6 +8,7 @@
 
 #include "flutter/fml/build_config.h"
 #include "flutter/lib/ui/text/asset_manager_font_provider.h"
+#include "flutter/lib/ui/text/positioned_text.h"
 #include "flutter/lib/ui/ui_dart_state.h"
 #include "flutter/lib/ui/window/platform_configuration.h"
 #include "flutter/runtime/test_font_data.h"
@@ -176,6 +177,7 @@ void FontCollection::LoadFontFromList(Dart_Handle font_data_handle,
   }
   font_collection.collection_->ClearFontFamilyCache();
   txt::FontCollection::NotifyFontsChanged();
+  PositionedText::ClearFontCaches();
 
   font_data.Release();
   tonic::DartInvoke(callback, {tonic::ToDart(0)});
@@ -208,6 +210,7 @@ bool FontCollection::LoadFontFromFileInRootIsolate(
   }
   font_collection.collection_->ClearFontFamilyCache();
   txt::FontCollection::NotifyFontsChanged();
+  PositionedText::ClearFontCaches();
   return true;
 }
 
@@ -229,6 +232,7 @@ bool FontCollection::UnloadFontFamilyInRootIsolate(
   }
   font_collection.collection_->ClearFontFamilyCache();
   txt::FontCollection::NotifyFontsChanged();
+  PositionedText::ClearFontCaches();
   // Glyph caches hold references to the typeface.
   SkGraphics::PurgeFontCache();
 #if IMPELLER_SUPPORTS_RENDERING
